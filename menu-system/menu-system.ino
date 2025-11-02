@@ -18,7 +18,7 @@ int currentItem = 0;
 
 // Menu data
 String mainMenu[] = {"Noise", "Breath", "Focus Timer"};
-String noiseMenu[] = {"Play", "Stop"};
+String colorMenu[] = {"Red", "Orange", "Yellow"};
 String breathMenu[] = {"Box Breathe", "Another"};
 String focusMenu[] = {"10 Min", "15 Min", "20 Min"};
 
