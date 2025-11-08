@@ -46,7 +46,7 @@ const int BTN_SELECT = 2;
 const int BTN_SCROLL = 3;
 const int BTN_BACK   = 4;
 
-// Lignt Sensor Pin
+// Light Sensor Pin
 const int pinLightSensor = A3;
 
 // Debounce
@@ -185,19 +185,25 @@ void reset(){
 void monitorLight(){
   if (millis() - lastLightLevelUpdate < lightLevelUpdateDelay) return;
 
-  int sensorValue = analogRead(pinLight); 
+  int sensorValue = analogRead(pinLightSensor); 
   const int threshold = 200;
   const int buffer = 20; // prevent flickers
+
+  // Debug brighness values
+  Serial.println(sensorValue);
 
   if(sensorValue > threshold + buffer){
     if(LEDBrightness < 255){
       FastLED.setBrightness(LEDBrightness + 1);
       FastLED.show();
+      Serial.println("Light level low!");
     }
+  }
   if(sensorValue < threshold - buffer){
     if(LEDBrightness > 125){
       FastLED.setBrightness(LEDBrightness - 1);
       FastLED.show();
+      Serial.println("Light level adequate!");
     }
   }
 
