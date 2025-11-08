@@ -20,14 +20,14 @@ DFRobotDFPlayerMini myDFPlayer;
 
 // Color Array
 CHSV colors[] = {
-  CHSV(0, 255, 255),      // Red
-  CHSV(32, 255, 255),      // Orange
-  CHSV(64, 255, 255),     // Yellow
-  CHSV(96, 255, 255),    // Green
-  CHSV(128, 255, 255),     // Cyan
-  CHSV(160, 255, 255),    // Blue
-  CHSV(192, 255, 255),    // Purple
-  CHSV(224, 255, 255)  // Pink
+  CHSV(0, 255, 255),      // Red 0
+  CHSV(32, 255, 255),      // Orange 1
+  CHSV(64, 255, 255),     // Yellow 2
+  CHSV(96, 255, 255),    // Green 3
+  CHSV(128, 255, 255),     // Cyan 4
+  CHSV(160, 255, 255),    // Blue 5
+  CHSV(192, 255, 255),    // Purple 6
+  CHSV(224, 255, 255)  // Pink 7
 };
 
 
@@ -36,10 +36,6 @@ bool isBreathActive = false;
 bool isFocusTimerActive = false;
 bool isNoiseActive = false;
 bool isAlertActive = false;
-
-// Alerts
-String alertMessage1 = "";
-String alertMessage2 = "";
 
 // Button pins 
 const int BTN_SELECT = 2;
@@ -55,14 +51,15 @@ const unsigned long debounceDelay = 500;
 
 // CO2 Debounce
 unsigned long lastAirQualityUpdate = 0;
-const unsigned long airQualityUpdateDelay = 1000 * 1; // poll every 5 seconds for testing
+const unsigned long airQualityUpdateDelay = 1000 * 1; // poll every 1 seconds for testing
 
 // Light Level Debounce
 unsigned long lastLightLevelUpdate = 0;
-const unsigned long lightLevelUpdateDelay = 1000 * 1; // poll every 5 seconds for testing
+const unsigned long lightLevelUpdateDelay = 1000 * 5; // poll every 5 seconds for testing
 
 // Lights
-int LEDBrightness = 125;
+const int LEDDefaultBrightness = 100;
+int LEDBrightness = 100;
 
 // breathwork
 int breathCount = 0; // how many breaths to run through
@@ -94,6 +91,7 @@ void setup() {
 
   // MP3 player has to go first - for some reason it messes with I2C comms otherwise
   FPSerial.begin(9600);
+  Serial.begin(115200);
 
   if (!myDFPlayer.begin(FPSerial, /*isACK = */true, /*doReset = */true)) {  //Use serial to communicate with mp3.
     Serial.println(F("Unable to begin:"));
@@ -120,6 +118,8 @@ void setup() {
       Serial.println("SGP30 init failed!");
   }
 
+  delay(1000); // safety
+
   // Once these are done and won't conflict, start up LCD screen
   Wire.begin();
 
@@ -127,12 +127,12 @@ void setup() {
 
   FastLED.setBrightness(LEDBrightness);
   for(int i=0; i<NUM_LEDS; i++){
-    leds[i] = colors[0]; 
+    leds[i] = colors[5]; // Start blue
   }
   FastLED.show();
 
   lcd.begin(16, 2);
-  lcd.setRGB(255, 50, 0);
+  defaultScreenColor();
   lcd.clear();
 
   pinMode(BTN_SELECT, INPUT);
@@ -182,6 +182,10 @@ void reset(){
   showMenu();
 }
 
+void defaultScreenColor(){
+  lcd.setRGB(0, 120, 200);
+}
+
 void monitorLight(){
   if (millis() - lastLightLevelUpdate < lightLevelUpdateDelay) return;
 
@@ -193,20 +197,21 @@ void monitorLight(){
   Serial.println(sensorValue);
 
   if(sensorValue > threshold + buffer){
-    if(LEDBrightness < 255){
-      FastLED.setBrightness(LEDBrightness + 1);
+    Serial.println("Light level adequate!");
+    if(LEDBrightness != LEDDefaultBrightness){
+      LEDBrightness = LEDDefaultBrightness;
+      FastLED.setBrightness(LEDBrightness);
       FastLED.show();
-      Serial.println("Light level low!");
     }
   }
   if(sensorValue < threshold - buffer){
-    if(LEDBrightness > 125){
-      FastLED.setBrightness(LEDBrightness - 1);
+    Serial.println("Light level low!");
+    if(LEDBrightness != 255){
+      LEDBrightness = 255;
+      FastLED.setBrightness(LEDBrightness);
       FastLED.show();
-      Serial.println("Light level adequate!");
     }
   }
-
   lastLightLevelUpdate = millis();
 }
 
@@ -218,6 +223,7 @@ void monitorAir(){
   if (err == STATUS_OK) {
     if(co2_eq_ppm > 1000){
       isAlertActive = true;
+      lcd.setRGB(255, 0, 0); // screen goes red
       lcd.clear();
       lcd.setCursor(0, 0);
       lcd.print("CO2 Level High");
@@ -236,7 +242,12 @@ void checkForButtonPresses(){
   // Simply cancel out alert if there is one
   if(isAlertActive){
     if(digitalRead(BTN_SELECT) == HIGH || digitalRead(BTN_SCROLL) == HIGH || digitalRead(BTN_BACK) == HIGH){
+      lastPress = millis();
       isAlertActive = false;
+      defaultScreenColor();
+      if(!isBreathActive && !isFocusTimerActive){
+        showMenu();
+      }
     }
     return;
   }
@@ -295,7 +306,7 @@ void boxBreath(){
     breathCount = 0;
     breathTimer = 0;
     breathState = 0;
-    FastLED.setBrightness(LEDBrightness);
+    FastLED.setBrightness(LEDDefaultBrightness);
     FastLED.show();
     reset();
     return;
@@ -322,13 +333,13 @@ void boxBreath(){
 
   // Switch to handle the LED Fade
   if(breathState == 1) {
-    int brightness = map(millis() - breathTimer, 0, breathDelay, 20, 255);
+    int brightness = map(millis() - breathTimer, 0, breathDelay, 20, 220);
     FastLED.setBrightness(brightness);
     FastLED.show();
   } 
   
   if(breathState == 3) {
-    int brightness = map(breathDelay - (millis() - breathTimer), 0, breathDelay, 20, 255);
+    int brightness = map(breathDelay - (millis() - breathTimer), 0, breathDelay, 20, 220);
     FastLED.setBrightness(brightness);
     FastLED.show();
   }
