@@ -1,3 +1,4 @@
+#include <Arduino.h>
 #include <FastLED.h>
 #include <Wire.h>
 #include "rgb_lcd.h"
@@ -5,6 +6,8 @@
 #include "DFRobotDFPlayerMini.h"
 #define NUM_LEDS 48
 #include <SoftwareSerial.h>
+#include "sensirion_common.h"
+#include "sgp30.h"
 
 CRGB leds[NUM_LEDS];
 
@@ -32,15 +35,31 @@ CHSV colors[] = {
 bool isBreathActive = false;
 bool isFocusTimerActive = false;
 bool isNoiseActive = false;
+bool isAlertActive = false;
+
+// Alerts
+String alertMessage1 = "";
+String alertMessage2 = "";
 
 // Button pins 
 const int BTN_SELECT = 2;
 const int BTN_SCROLL = 3;
 const int BTN_BACK   = 4;
 
+// Lignt Sensor Pin
+const int pinLightSensor = A3;
+
 // Debounce
 unsigned long lastPress = 0;
 const unsigned long debounceDelay = 500;
+
+// CO2 Debounce
+unsigned long lastAirQualityUpdate = 0;
+const unsigned long airQualityUpdateDelay = 1000 * 1; // poll every 5 seconds for testing
+
+// Light Level Debounce
+unsigned long lastLightLevelUpdate = 0;
+const unsigned long lightLevelUpdateDelay = 1000 * 1; // poll every 5 seconds for testing
 
 // Lights
 int LEDBrightness = 125;
@@ -64,14 +83,16 @@ int currentMenu = 0;  // 0 = main, 1 = Lamp Color, 2 = Breath, 3 = Focus Timer
 int currentItem = 0;
 
 // Menu data
-String mainMenu[] = {"Lamp Color", "Breath & Relax", "Focus Timer", "White Noise"}; // 0
-String colorMenu[] = {"Red", "Orange", "Yellow", "Green", "Cyan", "Blue", "Purple", "Pink"}; // 1
+String mainMenu[] = {"Lamp Color", "Breath & Relax", "Focus Timer", "White Noise"}; // 4
+String colorMenu[] = {"Red", "Orange", "Yellow", "Green", "Cyan", "Blue", "Purple", "Pink"}; // 8
 String breathMenu[] = {"5 Breaths", "10 Breaths"}; // 2
 String focusMenu[] = {"10 Minutes", "15 Minutes", "20 Minutes"}; // 3
 String noiseMenu[] = {"On", "Off"}; // 2
 
 void setup() { 
   Wire.end();
+
+  // MP3 player has to go first - for some reason it messes with I2C comms otherwise
   FPSerial.begin(9600);
 
   if (!myDFPlayer.begin(FPSerial, /*isACK = */true, /*doReset = */true)) {  //Use serial to communicate with mp3.
@@ -86,8 +107,21 @@ void setup() {
 
   myDFPlayer.volume(20);  //Set volume value. From 0 to 30
 
-  Wire.begin();
+  // Next set up the CO2 Sensor
+  while (sgp_probe() != STATUS_OK) {
+      Serial.println("SGP30 not found. Check wiring!");
+      delay(500);
+  }
 
+  // Initialize air quality algorithm
+  if (sgp_iaq_init() == STATUS_OK) {
+      Serial.println("SGP30 initialized!");
+  } else {
+      Serial.println("SGP30 init failed!");
+  }
+
+  // Once these are done and won't conflict, start up LCD screen
+  Wire.begin();
 
   FastLED.addLeds<WS2812, 6, GRB>(leds, NUM_LEDS); 
 
@@ -109,8 +143,6 @@ void setup() {
   delay(2000);
   showMenu();
 
-
-
 }
 
 
@@ -120,25 +152,27 @@ void loop() {
 
   checkForButtonPresses();
 
-  // monitorAir();
+  monitorAir();
 
-  // monitorLight();
+  // Pause all activities by returning early if alert is active
+  if(isAlertActive){
+    return;
+  }
 
   // Run breath logic
   if(isBreathActive == true){
     boxBreath();
+    return;
   }
+
+  // Only check light levels if not currently doing breath exercises
+  monitorLight();
 
   // Run task timer
   if(isFocusTimerActive == true){
     if (millis() - lastTimerUpdate < timerUpdateDelay) return;
     focusTimer();
   }
-
-  // Run white noise
-  // if(isNoiseActive == true){
-  //   whiteNoise();
-  // }
 
 }
 
@@ -148,9 +182,68 @@ void reset(){
   showMenu();
 }
 
+void monitorLight(){
+  if (millis() - lastLightLevelUpdate < lightLevelUpdateDelay) return;
+
+  int sensorValue = analogRead(pinLight); 
+  const int threshold = 200;
+  const int buffer = 20; // prevent flickers
+
+  if(sensorValue > threshold + buffer){
+    if(LEDBrightness < 255){
+      FastLED.setBrightness(LEDBrightness + 1);
+      FastLED.show();
+    }
+  if(sensorValue < threshold - buffer){
+    if(LEDBrightness > 125){
+      FastLED.setBrightness(LEDBrightness - 1);
+      FastLED.show();
+    }
+  }
+
+  lastLightLevelUpdate = millis();
+}
+
+void monitorAir(){
+  if (millis() - lastAirQualityUpdate < airQualityUpdateDelay) return;
+  s16 err;
+  u16 tvoc_ppb, co2_eq_ppm;
+  err = sgp_measure_iaq_blocking_read(&tvoc_ppb, &co2_eq_ppm);
+  if (err == STATUS_OK) {
+    if(co2_eq_ppm > 1000){
+      isAlertActive = true;
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("CO2 Level High");
+      lcd.setCursor(0, 1);
+      lcd.print(co2_eq_ppm);
+      lcd.print(" ");
+      lcd.print("ppm");
+    }
+  }
+  lastAirQualityUpdate = millis();
+}
+
 void checkForButtonPresses(){
   if (millis() - lastPress < debounceDelay) return;
 
+  // Simply cancel out alert if there is one
+  if(isAlertActive){
+    if(digitalRead(BTN_SELECT) == HIGH || digitalRead(BTN_SCROLL) == HIGH || digitalRead(BTN_BACK) == HIGH){
+      isAlertActive = false;
+    }
+    return;
+  }
+
+  // If activity is running - only listen to back button
+  if(isFocusTimerActive || isBreathActive){
+    if(digitalRead(BTN_BACK) == HIGH){
+      handleBack();
+    }
+    return;
+  }
+
+  // Otherwise normal menu operation
   if (digitalRead(BTN_SELECT) == HIGH) {
     handleSelect();
   } else if (digitalRead(BTN_SCROLL) == HIGH) {
@@ -173,6 +266,11 @@ void focusTimer(){
   unsigned int seconds = remaining / 1000;
   unsigned int minutes = seconds / 60;
   seconds = seconds % 60;
+
+  // Defensive clear out, in case there was an alert
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Time To Lock In!");
 
   // Print MM:SS
   lcd.setCursor(0, 1);
