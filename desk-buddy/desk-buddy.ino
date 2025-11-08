@@ -86,6 +86,16 @@ String breathMenu[] = {"5 Breaths", "10 Breaths"}; // 2
 String focusMenu[] = {"10 Minutes", "15 Minutes", "20 Minutes"}; // 3
 String noiseMenu[] = {"On", "Off"}; // 2
 
+// Helper for getting menu counts - better perf. hard-coded than dynamic
+int getItemCount() {
+  if (currentMenu == 0) return 4;     // main
+  if (currentMenu == 1) return 8;     // color
+  if (currentMenu == 2) return 2;     // breath
+  if (currentMenu == 3) return 3;     // focus timer
+  if (currentMenu == 4) return 2;     // noise
+  return 0;
+}
+
 void setup() { 
   Wire.end();
 
@@ -427,14 +437,6 @@ void handleSelect() {
 }
 
 
-int getItemCount() {
-  if (currentMenu == 0) return 4;     // main
-  if (currentMenu == 1) return 8;     // color
-  if (currentMenu == 2) return 2;     // breath
-  if (currentMenu == 3) return 3;     // focus timer
-  if (currentMenu == 4) return 2;     // noise
-  return 0;
-}
 
 void handleScroll() {
   lastPress = millis();
