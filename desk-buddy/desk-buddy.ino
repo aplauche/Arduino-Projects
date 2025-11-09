@@ -13,6 +13,20 @@ CRGB leds[NUM_LEDS];
 
 rgb_lcd lcd;
 
+// Voice recognition
+// -------------------------
+// WAKE: hello desk buddy (default "hello robot")
+// DELETE: "I want to delete"
+// DELETE EVERYTHING: "delete all"
+// SET WAKE WORD: "learn wake word"
+// SET COMMANDS: "learn command word"
+
+//I2C communication for VR
+DFRobot_DF2301Q_I2C asr;
+
+
+
+
 // Assign MP3 Player Serial
 #define FPSerial Serial1
 //SoftwareSerial FPSerial(8, 9);  // RX=8, TX=9
@@ -51,7 +65,7 @@ const unsigned long debounceDelay = 500;
 
 // CO2 Debounce
 unsigned long lastAirQualityUpdate = 0;
-const unsigned long airQualityUpdateDelay = 1000 * 1; // poll every 1 seconds for testing
+const unsigned long airQualityUpdateDelay = 1000 * 2; // poll every 1 seconds for testing
 
 // Light Level Debounce
 unsigned long lastLightLevelUpdate = 0;
@@ -71,9 +85,15 @@ String breathMessages[] = {"Hold", "Inhale", "Hold", "Exhale"};
 // Focus Timer
 unsigned long focusTimerStart = 0;
 unsigned long focusTimerLength = 0;
+
 // Debounce
 unsigned long lastTimerUpdate = 0;
 const unsigned long timerUpdateDelay = 1000;
+
+// Debounce Voice Recognition
+unsigned long lastVoiceUpdate = 0;
+const unsigned long voiceUpdateDelay = 1000;
+
 
 // Menu state
 int currentMenu = 0;  // 0 = main, 1 = Lamp Color, 2 = Breath, 3 = Focus Timer
@@ -115,6 +135,33 @@ void setup() {
 
   myDFPlayer.volume(20);  //Set volume value. From 0 to 30
 
+  delay(1000); // safety
+
+  // Once these are done and won't conflict, start up LCD screen
+  Wire.begin();
+  // Wire.setClock(100000);
+
+  // VOICE RECOGNITION CONFIG
+  /**
+    * @brief Set voice volume
+    * @param voc - Volume value(1~7)
+    */
+  asr.setVolume(4);
+
+  /**
+      @brief Set mute mode
+      @param mode - Mute mode; set value 1: mute, 0: unmute
+  */
+  asr.setMuteMode(0);
+
+  /**
+      @brief Set wake-up duration
+      @param wakeTime - Wake-up duration (0-255)
+  */
+  asr.setWakeTime(20);
+
+  delay(1000); // safety
+
   // Next set up the CO2 Sensor
   while (sgp_probe() != STATUS_OK) {
       Serial.println("SGP30 not found. Check wiring!");
@@ -128,10 +175,7 @@ void setup() {
       Serial.println("SGP30 init failed!");
   }
 
-  delay(1000); // safety
 
-  // Once these are done and won't conflict, start up LCD screen
-  Wire.begin();
 
   FastLED.addLeds<WS2812, 6, GRB>(leds, NUM_LEDS); 
 
@@ -169,6 +213,9 @@ void loop() {
     return;
   }
 
+  // Check for voice commands
+  listen();
+
   // Run breath logic
   if(isBreathActive == true){
     boxBreath();
@@ -193,7 +240,65 @@ void reset(){
 }
 
 void defaultScreenColor(){
-  lcd.setRGB(0, 120, 200);
+  lcd.setRGB(0, 0, 0);
+}
+
+void listen(){
+  if (millis() - lastVoiceUpdate < voiceUpdateDelay) return;
+
+  uint8_t CMDID = asr.getCMDID();
+
+  if(CMDID == 0) return;
+
+  switch (CMDID) {
+    case 97: // Volume up                                               
+      
+      break;
+    case 98: // Volume down                                               
+      
+      break;
+    case 116: // Set to red                                              
+      changeLEDColor(0);
+      break;
+    case 119: // Set to green                                              
+      changeLEDColor(3);
+      break;
+    case 121: // Set to blue                                             
+      changeLEDColor(5);
+      break;
+    case 5: // Do breathing Exercises                                             
+      startBreathing(5);
+      break;
+    case 6: // Help me relax                                             
+      startBreathing(5);
+      break;
+    case 7: // Set a focus timer                                               
+      startFocusTimer(10);
+      break;
+    case 8: // Set a 5 minute focus timer                                               
+      startFocusTimer(5);
+      break;
+    case 9: // Set a 10 minute focus timer                                               
+      startFocusTimer(10);
+      break;
+    case 10: // Set a 20 minute focus timer                                              
+      startFocusTimer(20);
+      break;
+    case 11: // Play white noise                                              
+      playWhiteNoise();
+      break;
+    case 12: // Stop white noise                                               
+      stopWhiteNoise();
+      break;
+
+    default:
+      if (CMDID != 0) {
+        Serial.print("CMDID = ");  //Printing command ID
+        Serial.println(CMDID);
+      }
+  }
+
+  lastVoiceUpdate = millis();
 }
 
 void monitorLight(){
@@ -355,6 +460,39 @@ void boxBreath(){
   }
 }
 
+void playWhiteNoise(){
+  myDFPlayer.play(1);  //Play the first mp3
+  myDFPlayer.loop(1);  //Loop the first mp3
+  lcd.clear();
+  lcd.print("Noise On!");
+}
+
+void stopWhiteNoise(){
+  myDFPlayer.pause();
+  lcd.clear();
+  lcd.print("Noise Off!");
+}
+
+void changeLEDColor(int colorIndex){
+  for(int i=0; i<NUM_LEDS; i++){
+    leds[i] = colors[colorIndex]; 
+  }
+  FastLED.show();
+}
+
+void startBreathing(int numBreaths){
+  breathCount = numBreaths;
+  isBreathActive = true;
+}
+
+void startFocusTimer(int minutes){
+  focusTimerLength = 1000 * 60 * minutes;
+  focusTimerStart = millis();
+  isFocusTimerActive = true;
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Time To Lock In!");
+}
 
 void handleSelect() {
   lastPress = millis();
@@ -369,10 +507,7 @@ void handleSelect() {
   // -----------------------
     // Lamp Color
     if(currentMenu == 1){
-      for(int i=0; i<NUM_LEDS; i++){
-        leds[i] = colors[currentItem]; 
-      }
-      FastLED.show();
+      changeLEDColor(currentItem);
       return;
     }
     // Breath
@@ -409,15 +544,9 @@ void handleSelect() {
 
     if(currentMenu == 4){
       if(currentItem == 0){
-        myDFPlayer.play(1);  //Play the first mp3
-        myDFPlayer.loop(1);  //Loop the first mp3
-        lcd.clear();
-        lcd.print("Noise On!");
-
+        playWhiteNoise();
       } else {
-        myDFPlayer.pause();
-        lcd.clear();
-        lcd.print("Noise Off!");
+        stopWhiteNoise();
       }
 
       delay(1000); 
@@ -432,7 +561,6 @@ void handleSelect() {
     lcd.print("Running...");
     delay(1000); // simulate action
   }
-
   showMenu();
 }
 

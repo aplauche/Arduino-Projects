@@ -25,6 +25,7 @@ rgb_lcd lcd;
 DFRobot_DF2301Q_I2C asr;
 
 void setup() {
+  asr.setI2CAddress(0x65);
   Serial.begin(115200);
 
   pinMode(Led, OUTPUT);    //Init LED pin to output mode
