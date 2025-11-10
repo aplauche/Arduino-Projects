@@ -15,17 +15,14 @@ rgb_lcd lcd;
 
 // Voice recognition
 // -------------------------
+// WAKE: hello desk buddy (default "hello robot")
+// DELETE: "I want to delete"
+// DELETE EVERYTHING: "delete all"
+// SET WAKE WORD: "learn wake word"
+// SET COMMANDS: "learn command word"
 
-//I2C communication for VR
-DFRobot_DF2301Q_I2C asr;
-
-
-
-
-// Assign MP3 Player Serial
-#define FPSerial Serial1
-//SoftwareSerial FPSerial(8, 9);  // RX=8, TX=9
-DFRobotDFPlayerMini myDFPlayer;
+//UART communication for VR
+DFRobot_DF2301Q_UART asr(/*hardSerial =*/&Serial1);
 
 // Color Array
 CHSV colors[] = {
@@ -114,26 +111,14 @@ int getItemCount() {
 void setup() { 
 
   // MP3 player has to go first - for some reason it messes with I2C comms otherwise
-  FPSerial.begin(9600);
-  Serial.begin(115200);
-
-  if (!myDFPlayer.begin(FPSerial, /*isACK = */true, /*doReset = */true)) {  //Use serial to communicate with mp3.
-    Serial.println(F("Unable to begin:"));
-    Serial.println(F("1.Please recheck the connection!"));
-    Serial.println(F("2.Please insert the SD card!"));
-    while(true);
-  }
-  Serial.println(F("DFPlayer Mini online."));
-  
-  myDFPlayer.setTimeOut(500); //Set serial communictaion time out 500ms
-
-  myDFPlayer.volume(20);  //Set volume value. From 0 to 30
+  Serial1.begin(115200);
+  //Serial.begin(115200);
 
   delay(1000); // safety
 
   // Once these are done and won't conflict, start up LCD screen
   Wire.begin();
-  Wire.setClock(20000);
+  Wire.setClock(50000);
 
   lcd.begin(16, 2);
   defaultScreenColor();
@@ -142,10 +127,14 @@ void setup() {
   delay(1000); // safety
 
   // VOICE RECOGNITION CONFIG
-  asr.begin();
-  asr.setVolume(4);
-  asr.setMuteMode(0);
-  asr.setWakeTime(20);
+  // asr.begin();
+  // asr.setVolume(4);
+  // asr.setMuteMode(0);
+  // asr.setWakeTime(20);
+
+  asr.settingCMD(DF2301Q_UART_MSG_CMD_SET_MUTE, 0);
+  asr.settingCMD(DF2301Q_UART_MSG_CMD_SET_VOLUME, 7);
+  asr.settingCMD(DF2301Q_UART_MSG_CMD_SET_WAKE_TIME, 20);
 
   delay(1000); // safety
 
@@ -177,6 +166,7 @@ void setup() {
   lcd.print("Hi There :)");
   delay(2000);
   showMenu();
+
 }
 
 
@@ -271,6 +261,12 @@ void listen(){
     case 12: // Stop white noise                                               
       stopWhiteNoise();
       break;
+
+    default:
+      if (CMDID != 0) {
+        Serial.print("CMDID = ");  //Printing command ID
+        Serial.println(CMDID);
+      }
   }
 
   lastVoiceUpdate = millis();
@@ -436,14 +432,14 @@ void boxBreath(){
 }
 
 void playWhiteNoise(){
-  myDFPlayer.play(1);  //Play the first mp3
-  myDFPlayer.loop(1);  //Loop the first mp3
+  // myDFPlayer.play(1);  //Play the first mp3
+  // myDFPlayer.loop(1);  //Loop the first mp3
   lcd.clear();
   lcd.print("Noise On!");
 }
 
 void stopWhiteNoise(){
-  myDFPlayer.pause();
+  // myDFPlayer.pause();
   lcd.clear();
   lcd.print("Noise Off!");
 }
@@ -514,6 +510,7 @@ void handleSelect() {
       lcd.setCursor(0, 0);
       lcd.print("Time To Lock In!");
       return;
+
     }
 
     if(currentMenu == 4){
@@ -522,10 +519,13 @@ void handleSelect() {
       } else {
         stopWhiteNoise();
       }
+
       delay(1000); 
       reset();
       return;
     }
+
+
 
     // Simulate for others...
     lcd.clear();
