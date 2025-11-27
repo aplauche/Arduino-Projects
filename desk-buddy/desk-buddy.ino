@@ -133,7 +133,7 @@ void setup() {
 
   // Once these are done and won't conflict, start up LCD screen
   Wire.begin();
-  Wire.setClock(20000);
+  Wire.setClock(40000);
 
   lcd.begin(16, 2);
   defaultScreenColor();
