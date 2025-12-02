@@ -221,7 +221,9 @@ void reset(){
 }
 
 void defaultScreenColor(){
-  lcd.setRGB(0, 0, 0);
+  // lcd.setRGB(0, 0, 0);
+  lcd.setRGB(200, 50, 0);
+  
 }
 
 void listen(){
